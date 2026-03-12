@@ -25,11 +25,17 @@
 #define LIGHT_SENSOR_PIN 35
 #define GAS_SENSOR_PIN 32
 #define SPEED_SENSOR_PIN 33
+#define UV_SENSOR_PIN 36    // ADC1_0 (VP)
+#define RAIN_SENSOR_PIN 37  // ADC1_1
+#define DUST_MEASURE_PIN 38 // ADC1_2
+#define WATER_LEVEL_TRIG_PIN 39 // ADC1_3
+#define WATER_LEVEL_ECHO_PIN 40 // ADC1_4
 
 // Digital Sensors
 #define DHT22_PIN 4
 #define PIR_MOTION_PIN 14
 #define SPEED_LED_PIN 18
+#define DUST_LED_PIN 21     // LED pin for Sharp dust sensor
 
 // I2C Pins (Display & BMP280)
 #define OLED_SDA_PIN 21
@@ -116,6 +122,12 @@ struct SensorData {
     
     // Air Quality
     float gasLevel;
+    float dustDensity;  // PM2.5 μg/m³
+    float uvIndex;
+    
+    // Weather
+    float rainIntensity;  // 0-100%
+    float waterLevel;     // 0-100%
     
     // System
     unsigned long timestamp;

@@ -17,6 +17,10 @@
 #include "LightSensor.h"
 #include "GasSensor.h"
 #include "PressureSensor.h"
+#include "WaterLevelSensor.h"
+#include "UVSensor.h"
+#include "RainSensor.h"
+#include "DustSensor.h"
 
 class SensorManager {
 private:
@@ -28,6 +32,10 @@ private:
     LightSensor lightSensor;
     GasSensor gasSensor;
     PressureSensor pressureSensor;
+    WaterLevelSensor waterLevelSensor;
+    UVSensor uvSensor;
+    RainSensor rainSensor;
+    DustSensor dustSensor;
     
     // Last sensor readings for smoothing
     float lastTemp = 0;
@@ -36,6 +44,10 @@ private:
     float lastSoilMoisture = 0;
     float lastLightLevel = 0;
     float lastGasLevel = 0;
+    float lastWaterLevel = 0;
+    float lastUVIndex = 0;
+    float lastRainIntensity = 0;
+    float lastDustDensity = 0;
     
     // Smoothing factor (0.0-1.0, higher = more responsive)
     const float smoothingFactor = 0.7;
@@ -57,6 +69,10 @@ public:
         lightSensor.begin();
         gasSensor.begin();
         pressureSensor.begin();
+        waterLevelSensor.begin();
+        uvSensor.begin();
+        rainSensor.begin();
+        dustSensor.begin();
         
         // Initial readings to initialize values
         delay(100);
@@ -101,6 +117,22 @@ public:
         data.gasLevel = smoothValue(gasSensor.read(), lastGasLevel);
         lastGasLevel = data.gasLevel;
         
+        // Read Water Level (Ultrasonic)
+        data.waterLevel = smoothValue(waterLevelSensor.read(), lastWaterLevel);
+        lastWaterLevel = data.waterLevel;
+        
+        // Read UV Index
+        data.uvIndex = smoothValue(uvSensor.read(), lastUVIndex);
+        lastUVIndex = data.uvIndex;
+        
+        // Read Rain Intensity
+        data.rainIntensity = smoothValue(rainSensor.read(), lastRainIntensity);
+        lastRainIntensity = data.rainIntensity;
+        
+        // Read Dust Density (PM2.5)
+        data.dustDensity = smoothValue(dustSensor.read(), lastDustDensity);
+        lastDustDensity = data.dustDensity;
+        
         return data;
     }
     
@@ -125,6 +157,17 @@ public:
     float getGasLevel() { return lastGasLevel; }
     bool getMotionDetected() { return motionSensor.isDetected(); }
     float getSpeed() { return speedSensor.getSpeed(); }
+    float getWaterLevel() { return waterLevelSensor.getWaterLevel(); }
+    float getUVIndex() { return uvSensor.getUVIndex(); }
+    float getRainIntensity() { return rainSensor.getRainIntensity(); }
+    float getDustDensity() { return dustSensor.getDustDensity(); }
+    
+    // Convenience methods for additional sensor info
+    bool isRaining() { return rainSensor.isRainingNow(); }
+    bool isWaterLevelCritical(float threshold = 20.0) { 
+        return waterLevelSensor.isCritical(threshold); 
+    }
+    int getDustAQI() { return dustSensor.getAQI(); }
 };
 
 #endif // SENSOR_MANAGER_H
