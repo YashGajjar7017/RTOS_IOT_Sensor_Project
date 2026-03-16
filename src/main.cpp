@@ -16,8 +16,10 @@
 #include "communication/WiFiManager.h"
 #include "communication/MQTTClient.h"
 #include "communication/BLEHandler.h"
+#include "communication/WebServer.h"
 #include "display/DisplayManager.h"
 #include "storage/SDCardManager.h"
+#include "storage/DatabaseManager.h"
 #include "tasks/RTOS_Tasks.h"
 #include "../include/config.h"
 
@@ -26,8 +28,10 @@ SensorManager sensorManager;
 WiFiManager wifiManager;
 MQTTClient mqttClient;
 BLEHandler bleHandler;
+WebServer webServer;
 DisplayManager displayManager;
 SDCardManager sdCardManager;
+DatabaseManager databaseManager;
 
 // Task handles
 TaskHandle_t sensorTaskHandle = NULL;
@@ -35,6 +39,8 @@ TaskHandle_t displayTaskHandle = NULL;
 TaskHandle_t mqttTaskHandle = NULL;
 TaskHandle_t bleTaskHandle = NULL;
 TaskHandle_t sdCardTaskHandle = NULL;
+TaskHandle_t webServerTaskHandle = NULL;
+TaskHandle_t dbLogTaskHandle = NULL;
 TaskHandle_t watchdogTaskHandle = NULL;
 
 // Shared data
@@ -189,6 +195,95 @@ void sdCardTask(void* parameter) {
 }
 
 /**
+ * Web Server Task - Core 1, Medium Priority
+ * Handles HTTP requests and WebSocket connections for real-time dashboard
+ */
+void webServerTask(void* parameter) {
+    Serial.println("[WebServerTask] Started on Core 1");
+    
+    // Wait for WiFi connection
+    int wifiWaitCount = 0;
+    while (!systemStatus.wifiConnected && wifiWaitCount < 30) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        wifiWaitCount++;
+    }
+    
+    if (systemStatus.wifiConnected) {
+        // Initialize web server with callback to get sensor data
+        webServer.begin([]() -> SensorData {
+            SensorData data;
+            if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+                data = sensorData;
+                xSemaphoreGive(dataMutex);
+            }
+            return data;
+        });
+    } else {
+        Serial.println("[WebServerTask] WiFi not connected, web server disabled");
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    while (true) {
+        // Update WebSocket connections and send periodic updates
+        webServer.update();
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+/**
+ * Database Logging Task - Core 1, Low Priority
+ * Logs sensor data to SQLite database for historical tracking
+ */
+void dbLogTask(void* parameter) {
+    Serial.println("[DBLogTask] Started on Core 1");
+    
+    // Wait for Database initialization
+    int dbWaitCount = 0;
+    while (!systemStatus.sdCardMounted && dbWaitCount < 10) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        dbWaitCount++;
+    }
+    
+    if (systemStatus.sdCardMounted) {
+        if (!databaseManager.begin()) {
+            Serial.println("[DBLogTask] Failed to initialize database");
+            vTaskDelete(NULL);
+            return;
+        }
+        Serial.println("[DBLogTask] Database initialized successfully");
+    } else {
+        Serial.println("[DBLogTask] SD card not mounted, database logging disabled");
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    while (true) {
+        // Log sensor data to database
+        if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            databaseManager.logSensorData(sensorData);
+            
+            // Get and display database stats
+            static unsigned long lastStatsTime = 0;
+            if (millis() - lastStatsTime > 60000) {  // Every 60 seconds
+                int recordCount = databaseManager.getRecordCount();
+                long dbSize = databaseManager.getDatabaseSize();
+                Serial.print("[Database] Records: ");
+                Serial.print(recordCount);
+                Serial.print(", Size: ");
+                Serial.print(dbSize / 1024);
+                Serial.println(" KB");
+                lastStatsTime = millis();
+            }
+            
+            xSemaphoreGive(dataMutex);
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(DELAY_SDCARD));
+    }
+}
+
+/**
  * Watchdog Task - Core 0, Highest Priority
  * Monitors system health and task execution
  */
@@ -324,6 +419,28 @@ void setup() {
         NULL,
         PRIORITY_SDCARD,
         &sdCardTaskHandle,
+        1
+    );
+    
+    // Web Server Task - Core 1
+    xTaskCreatePinnedToCore(
+        webServerTask,
+        "WebServerTask",
+        STACK_SIZE_LARGE,
+        NULL,
+        PRIORITY_DISPLAY,
+        &webServerTaskHandle,
+        1
+    );
+    
+    // Database Logging Task - Core 1
+    xTaskCreatePinnedToCore(
+        dbLogTask,
+        "DBLogTask",
+        STACK_SIZE_LARGE,
+        NULL,
+        PRIORITY_SDCARD,
+        &dbLogTaskHandle,
         1
     );
     
